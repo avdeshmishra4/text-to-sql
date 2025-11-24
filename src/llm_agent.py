@@ -8,10 +8,11 @@ from langchain_community.agent_toolkits import SQLDatabaseToolkit
 from langchain_community.chat_message_histories import SQLChatMessageHistory
 from langchain_community.utilities import SQLDatabase
 from langchain_experimental.tools import PythonREPLTool
-#from langchain_openai import ChatOpenAI
-from langchain_community.chat_models import ChatOpenAI
+from langchain_openai import ChatOpenAI
+import streamlit as st
+#from langchain_community.chat_models import ChatOpenAI
 
-from constants import LLM_MODEL_NAME, OPENAI_API_KEY, DATABASE
+from .config import LLM_MODEL_NAME, OPENAI_API_KEY, DATABASE
 
 CUSTOM_SUFFIX = """Begin!
 
@@ -26,7 +27,14 @@ Queries for return percentage is defined as total number of returns divided by t
 Make sure that query is related to the SQL database and tables you are working with.
 If the result is empty, the Answer should be "No results found". DO NOT hallucinate an answer if there is no result.
 
-My final response should STRICTLY be the output of SQL query.
+CRITICAL: When you execute a query that returns data for visualization, your Final Answer MUST include the raw data results.
+
+For visualization queries, format your Final Answer as:
+"[Description of what was found]
+
+Data: [('item1', value1), ('item2', value2), ...]"
+
+DO NOT just describe the data - include the complete actual query results in your Final Answer.
 
 {agent_scratchpad}
 """
@@ -53,7 +61,7 @@ chat_openai_model_kwargs = {
     "presence_penalty": -1,
 }
 
-db = SQLDatabase.from_uri(f"sqlite:///{DATABASE}")
+#db = SQLDatabase.from_uri(f"sqlite:///{DATABASE}")
 
 class ValidatingPythonREPLTool(PythonREPLTool):
     """Runs Python code to validate it, but hides execution output."""
@@ -76,10 +84,14 @@ def get_chat_openai(model_name):
         ChatOpenAI: An instance of the ChatOpenAI class.
 
     """
+
+    if not model_name or not isinstance(model_name, str):
+        raise ValueError(f"model_name must be a non-empty string, got: {repr(model_name)}")
+       
     llm = ChatOpenAI(
-        model_name=model_name,
-        model_kwargs=chat_openai_model_kwargs,
-        **langchain_chat_kwargs
+        model=model_name,
+        temperature=0,
+        max_tokens=4000,
     )
     return llm
 
@@ -98,6 +110,21 @@ def get_sql_toolkit(tool_llm_name: str):
     Returns:
         SQLDatabaseToolkit: An instance of SQLDatabaseToolkit initialized with the provided language model.
     """
+    # Use the shared database connection from session state if available
+    if hasattr(st, 'session_state') and 'db_connection' in st.session_state:
+        try:
+            conn = st.session_state['db_connection']
+            db = SQLDatabase(conn.session.bind)
+        except Exception:
+            db = SQLDatabase.from_uri(f"sqlite:///{DATABASE}")
+    else:
+        # Try Streamlit connection or fallback
+        try:
+            conn = st.connection("ecommerce_db", type="sql", url=f"sqlite:///{DATABASE}")
+            db = SQLDatabase(conn.session.bind)
+        except Exception:
+            db = SQLDatabase.from_uri(f"sqlite:///{DATABASE}")
+            
     llm_tool = get_chat_openai(model_name=tool_llm_name)
     toolkit = SQLDatabaseToolkit(db=db, llm=llm_tool)
     return toolkit

@@ -1,3 +1,0 @@
-OPENAI_API_KEY = ""
-LLM_MODEL_NAME = "gpt-4.1-2025-04-14"
-DATABASE = "ecommerce"

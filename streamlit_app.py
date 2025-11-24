@@ -2,10 +2,14 @@ import os
 import sys
 import warnings
 import streamlit as st
+
+# Configure Streamlit page - Must be first Streamlit command
+st.set_page_config(page_title="Data Insights")
+
 import unidecode
-from helper import display_code_plots, display_text_with_images
-from llm_agent import initialize_python_agent, initialize_sql_agent
-from constants import OPENAI_API_KEY, LLM_MODEL_NAME, DATABASE
+from src.helper import display_code_plots, display_text_with_images
+from src.llm_agent import initialize_python_agent, initialize_sql_agent
+from src.config import OPENAI_API_KEY, LLM_MODEL_NAME, DATABASE
 
 # Suppress warnings
 warnings.filterwarnings("ignore")
@@ -18,10 +22,38 @@ sys.path.insert(0, parent_dir)
 # Set environment variables
 os.environ['OPENAI_API_KEY'] = OPENAI_API_KEY
 
-# Configure Streamlit page
-st.set_page_config(page_title="Data Insights")
+# Initialize database using Streamlit connection
+@st.cache_resource
+def init_database():
+    """ Initialize database with Streamlit connection approach """
 
-# Initialize session state
+    # Create Streamlit SQL connection
+
+    conn = st.connection("ecommerce_db",type="sql", url=f"sqlite:///{DATABASE}")
+
+    # Check if tables exist by trying a simple query
+    try:
+        tables = conn.query("SELECT name FROM sqlite_master WHERE type='table';", ttl=0)
+        if len(tables) == 0:
+            # Database is empty, create tables from CSV files
+            with st.spinner("Setting up database for first time ..."):
+                from setup_database import create_database
+                create_database()
+                st.success("Database initialized")
+    except Exception as e:
+        # Database doesn't exist or is empty, create it
+        with st.spinner("Setting up database for first time ..."):
+            from setup_database import create_database
+            create_database()
+            st.success("Database created and initialized")
+    
+    return conn
+
+
+conn = init_database()
+
+
+# Initialize session state - AFTER database is ready
 if 'agent_memory' not in st.session_state:
     st.session_state['agent_memory_sql'] = initialize_sql_agent()
     st.session_state['agent_memory_python'] = initialize_python_agent()
